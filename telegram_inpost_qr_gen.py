@@ -3,7 +3,7 @@ import time
 import qrcode
 from io import BytesIO
 
-TOKEN = 'ТВОЙ_ТОКЕН_БОТА'
+TOKEN = '7611903971:AAGJ9MWOcx7YLcMT3tP8IlauvBp0qrIcw7U'
 API_URL = f'https://api.telegram.org/bot7611903971:AAGJ9MWOcx7YLcMT3tP8IlauvBp0qrIcw7U/'
 
 user_data = {}  # user_id: {'phone': '...', 'step': 'wait_code'}
