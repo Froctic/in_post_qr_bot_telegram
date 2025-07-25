@@ -1,17 +1,14 @@
-import requests
-import time
+from flask import Flask, request
 import qrcode
 from io import BytesIO
+import requests
+import os
 
-TOKEN = '7611903971:AAGJ9MWOcx7YLcMT3tP8IlauvBp0qrIcw7U'
+TOKEN = os.environ.get('7611903971:AAGJ9MWOcx7YLcMT3tP8IlauvBp0qrIcw7U')  # В Render лучше хранить токен в переменной окружения
 API_URL = f'https://api.telegram.org/bot7611903971:AAGJ9MWOcx7YLcMT3tP8IlauvBp0qrIcw7U/'
 
+app = Flask(__name__)
 user_data = {}  # user_id: {'phone': '...', 'step': 'wait_code'}
-
-def get_updates(offset=None):
-    params = {'timeout': 30, 'offset': offset}
-    res = requests.get(API_URL + 'getUpdates', params=params)
-    return res.json()
 
 def send_message(chat_id, text):
     requests.post(API_URL + 'sendMessage', data={
@@ -24,59 +21,44 @@ def send_photo(chat_id, image_bytes, caption=''):
     data = {'chat_id': chat_id, 'caption': caption}
     requests.post(API_URL + 'sendPhoto', files=files, data=data)
 
-def handle_contact(message):
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = request.get_json()
+    if 'message' not in update:
+        return 'ok'
+
+    message = update['message']
     user_id = message['from']['id']
-    phone = message['contact']['phone_number']
-    user_data[user_id] = {'phone': phone, 'step': 'wait_code'}
-    send_message(user_id, f"📲 Телефон сохранён: {phone}\nТеперь отправь 6-значный код.")
 
-def handle_text(message):
-    user_id = message['from']['id']
-    text = message['text']
-
-    if user_id not in user_data:
-        if text.startswith('+') and len(text) > 10:
-            user_data[user_id] = {'phone': text, 'step': 'wait_code'}
-            send_message(user_id, "✅ Номер сохранён. Теперь пришли 6-значный код.")
+    if 'contact' in message:
+        phone = message['contact']['phone_number']
+        user_data[user_id] = {'phone': phone, 'step': 'wait_code'}
+        send_message(user_id, f"📲 Телефон сохранён: {phone}\nТеперь отправь 6-значный код.")
+    elif 'text' in message:
+        text = message['text']
+        if user_id not in user_data:
+            if text.startswith('+') and len(text) > 10:
+                user_data[user_id] = {'phone': text, 'step': 'wait_code'}
+                send_message(user_id, "✅ Номер сохранён. Теперь пришли 6-значный код.")
+            else:
+                send_message(user_id, "Сначала отправь свой номер телефона или контакт.")
         else:
-            send_message(user_id, "Сначала отправь свой номер телефона или контакт.")
-        return
+            if user_data[user_id]['step'] == 'wait_code':
+                if text.isdigit() and len(text) == 6:
+                    phone = user_data[user_id]['phone']
+                    qr_text = f"P|{phone}|{text}"
 
-    if user_data[user_id]['step'] == 'wait_code':
-        if text.isdigit() and len(text) == 6:
-            phone = user_data[user_id]['phone']
-            qr_text = f"P|{phone}|{text}"
+                    qr = qrcode.make(qr_text)
+                    bio = BytesIO()
+                    qr.save(bio, 'PNG')
+                    bio.seek(0)
 
-            # Создание QR-кода
-            qr = qrcode.make(qr_text)
-            bio = BytesIO()
-            qr.save(bio, 'PNG')
-            bio.seek(0)
+                    send_photo(user_id, bio, caption=f"Вот твой QR Код")
+                    del user_data[user_id]
+                else:
+                    send_message(user_id, "⚠️ Нужно отправить ровно 6 цифр.")
 
-            send_photo(user_id, bio, caption=f"Вот твой QR Код")
-            del user_data[user_id]
-        else:
-            send_message(user_id, "⚠️ Нужно отправить ровно 6 цифр.")
-
-def main():
-    last_update_id = None
-    print("Бот запущен...")
-
-    while True:
-        updates = get_updates(last_update_id)
-        for update in updates.get('result', []):
-            last_update_id = update['update_id'] + 1
-
-            msg = update.get('message')
-            if not msg:
-                continue
-
-            if 'contact' in msg:
-                handle_contact(msg)
-            elif 'text' in msg:
-                handle_text(msg)
-
-        time.sleep(1)
+    return 'ok'
 
 if __name__ == '__main__':
-    main()
+    app.run(host='0.0.0.0', port=5000)
